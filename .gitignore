@@ -9,3 +9,7 @@ wheels/
 # Virtual environments
 .venv
 /playground
+exercises/images
+exercises/images.zip
+exercises/mnist*
+exercises/ex7_data*
