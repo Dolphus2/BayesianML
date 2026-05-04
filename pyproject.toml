@@ -29,6 +29,7 @@ dependencies = [
     "nest-asyncio==1.6.0",
     "numpy==2.3.5",
     "opt-einsum==3.4.0",
+    "optax>=0.2.8",
     "packaging==25.0",
     "pandas==2.3.3",
     "parso==0.8.5",
