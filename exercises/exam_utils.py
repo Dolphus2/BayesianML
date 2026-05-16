@@ -2,6 +2,8 @@ import matplotlib.pyplot as plt
 import jax.numpy as jnp
 import numpy as np
 from jax import random, hessian, value_and_grad, vmap
+import jax.scipy.stats as jstats
+from jax.scipy.special import gammaln
 import seaborn as snb
 from dataclasses import dataclass
 from scipy.optimize import minimize
@@ -48,6 +50,92 @@ def gaussian_pdf(x, mu, sigma):
 def bernoulli_logpmf(y, p):
     """Log PMF of Bernoulli: y in {0, 1}, p in (0, 1)."""
     return y * jnp.log(p) + (1 - y) * jnp.log(1 - p)
+
+# Multivariate Normal
+def mvn_logpdf(x, mu, Sigma):
+    """Log PDF of multivariate normal N(mu, Sigma).
+
+    arguments:
+        x     -- D-vector
+        mu    -- D-vector mean
+        Sigma -- DxD covariance matrix
+    """
+    return mvn.logpdf(x, mu, Sigma)
+
+def mvn_pdf(x, mu, Sigma):
+    return jnp.exp(mvn_logpdf(x, mu, Sigma))
+
+def mvn_sample(key, mu, Sigma, shape=()):
+    """Sample from N(mu, Sigma). shape gives the batch shape of samples."""
+    return random.multivariate_normal(key, mu, Sigma, shape=shape)
+
+# Gamma — parameterised by shape (a) and scale. Mean = a * scale.
+def gamma_logpdf(x, a, scale=1.0):
+    """Log PDF of Gamma(a, scale). Mean = a * scale, variance = a * scale**2."""
+    return jstats.gamma.logpdf(x, a=a, scale=scale)
+
+def gamma_pdf(x, a, scale=1.0):
+    return jnp.exp(gamma_logpdf(x, a, scale))
+
+def gamma_sample(key, a, scale=1.0, shape=()):
+    return random.gamma(key, a, shape=shape) * scale
+
+# Beta
+def beta_logpdf(x, a, b):
+    """Log PDF of Beta(a, b). Support x in (0, 1)."""
+    return jstats.beta.logpdf(x, a=a, b=b)
+
+def beta_pdf(x, a, b):
+    return jnp.exp(beta_logpdf(x, a, b))
+
+def beta_sample(key, a, b, shape=()):
+    return random.beta(key, a, b, shape=shape)
+
+# Poisson
+def poisson_logpmf(k, lam):
+    """Log PMF of Poisson(lam). k must be a non-negative integer."""
+    return jstats.poisson.logpmf(k, mu=lam)
+
+def poisson_pmf(k, lam):
+    return jnp.exp(poisson_logpmf(k, lam))
+
+def poisson_sample(key, lam, shape=()):
+    return random.poisson(key, lam=lam, shape=shape)
+
+# Binomial
+def binomial_logpmf(k, n, p):
+    """Log PMF of Binomial(n, p).
+
+    arguments:
+        k -- number of successes (non-negative integer)
+        n -- number of trials (positive integer)
+        p -- success probability in (0, 1)
+    """
+    log_coeff = gammaln(n + 1) - gammaln(k + 1) - gammaln(n - k + 1)
+    return log_coeff + k * jnp.log(p) + (n - k) * jnp.log(1 - p)
+
+def binomial_pmf(k, n, p):
+    return jnp.exp(binomial_logpmf(k, n, p))
+
+def binomial_sample(key, n, p, shape=()):
+    """Sample from Binomial(n, p) by summing n Bernoulli trials."""
+    return jnp.sum(random.bernoulli(key, p, shape=(*shape, n)), axis=-1)
+
+# Dirichlet
+def dirichlet_logpdf(x, alpha):
+    """Log PDF of Dirichlet(alpha). x must be a probability vector summing to 1.
+
+    arguments:
+        x     -- K-vector in the probability simplex
+        alpha -- K-vector of concentration parameters (all positive)
+    """
+    return jstats.dirichlet.logpdf(x, alpha=alpha)
+
+def dirichlet_pdf(x, alpha):
+    return jnp.exp(dirichlet_logpdf(x, alpha))
+
+def dirichlet_sample(key, alpha, shape=()):
+    return random.dirichlet(key, alpha, shape=shape)
 
 # ====================================== Bayesian Linear Regression =====================================
 
@@ -122,6 +210,54 @@ def _plot_data(ax, Xtrain, ytrain):
 def plot_data(Xtrain, ytrain):
     fig, ax = plt.subplots(1, 1, figsize=(10, 4))
     _plot_data(ax, Xtrain, ytrain)
+
+def plot_contour(ax, f, x1s, x2s, num_contours=10, transform=lambda x: x,
+                 color='b', alpha=1.0, xlabel='$x_1$', ylabel='$x_2$', title=''):
+    """Plot contour lines of a 2D function f(X1, X2).
+
+    arguments:
+        ax           -- matplotlib axes
+        f            -- callable f(X1, X2) where X1, X2 are NxM meshgrids; returns NxM array
+        x1s          -- 1D array of values along the first axis (N points)
+        x2s          -- 1D array of values along the second axis (M points)
+        num_contours -- number of contour levels
+        transform    -- optional transform applied to f values before plotting (e.g. jnp.exp)
+        color        -- contour line color
+        alpha        -- contour line opacity
+        xlabel       -- x-axis label
+        ylabel       -- y-axis label
+        title        -- axes title
+    """
+    X1, X2 = jnp.meshgrid(x1s, x2s, indexing='ij')
+    Z = transform(f(X1, X2))
+    ax.contour(x1s, x2s, Z.T, num_contours, colors=color, alpha=alpha)
+    ax.set(xlabel=xlabel, ylabel=ylabel)
+    if title:
+        ax.set_title(title, fontweight='bold')
+
+def plot_heatmap(fig, ax, f, x1s, x2s, transform=lambda x: x,
+                 xlabel='$x_1$', ylabel='$x_2$', title='', cmap='viridis'):
+    """Plot a 2D function f(X1, X2) as a heatmap with a colorbar on the right.
+
+    arguments:
+        fig          -- matplotlib figure (needed for the colorbar)
+        ax           -- matplotlib axes
+        f            -- callable f(X1, X2) where X1, X2 are NxM meshgrids; returns NxM array
+        x1s          -- 1D array of values along the first axis (N points)
+        x2s          -- 1D array of values along the second axis (M points)
+        transform    -- optional transform applied to f values before plotting (e.g. jnp.exp)
+        xlabel       -- x-axis label
+        ylabel       -- y-axis label
+        title        -- axes title
+        cmap         -- matplotlib colormap name
+    """
+    X1, X2 = jnp.meshgrid(x1s, x2s, indexing='ij')
+    Z = transform(f(X1, X2))
+    im = ax.pcolormesh(x1s, x2s, Z.T, shading='auto', cmap=cmap)
+    add_colorbar(im, fig, ax)
+    ax.set(xlabel=xlabel, ylabel=ylabel)
+    if title:
+        ax.set_title(title, fontweight='bold')
 
 # ====================================== Gaussian Processes ============================================
 
