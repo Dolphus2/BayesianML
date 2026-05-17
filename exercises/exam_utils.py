@@ -12,7 +12,8 @@ import seaborn as snb
 from dataclasses import dataclass
 from scipy.optimize import minimize
 from scipy.stats import norm
-from typing import Any, Callable, Optional, Sequence, Union
+from typing import Any, Optional, Sequence, Union
+from collections.abc import Callable
 from matplotlib.axes import Axes
 from matplotlib.figure import Figure
 
@@ -252,7 +253,8 @@ def metropolis(log_target: Callable[[jax.Array], jax.Array],
                tau: float,
                num_iter: int,
                theta_init: Optional[jax.Array] = None,
-               seed: int = 0) -> jax.Array:
+               seed: int = 0,
+               verbose: bool = True) -> jax.Array:
     """Metropolis-Hastings sampler with isotropic Gaussian proposal.
 
     arguments:
@@ -270,14 +272,19 @@ def metropolis(log_target: Callable[[jax.Array], jax.Array],
     theta = jnp.zeros(num_params) if theta_init is None else jnp.asarray(theta_init, dtype=float)
     log_p = log_target(theta)
     thetas = [theta]
-
+    accept_count = 0
+    t0 = time()
     for _ in range(num_iter):
         key, key_prop, key_acc = random.split(key, 3)
         theta_star = theta + tau * random.normal(key_prop, shape=(num_params,))
         log_p_star = log_target(theta_star)
-        if jnp.log(random.uniform(key_acc)) < jnp.minimum(0.0, log_p_star - log_p):
+        if jnp.log(random.uniform(key_acc)) < jnp.minimum(0.0, log_p_star - log_p): # min unnecessary
             theta, log_p = theta_star, log_p_star
+            accept_count +=1
         thetas.append(theta)
+
+    if verbose:
+        print(f'MCMC done: accept_rate={accept_count/num_iter:.3f}  t={time()-t0:.1f}s')
 
     return jnp.array(thetas)
 
