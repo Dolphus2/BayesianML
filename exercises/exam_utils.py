@@ -1,13 +1,14 @@
 from __future__ import annotations
 
+from time import time
 import matplotlib.pyplot as plt
 import jax
 import jax.numpy as jnp
 import numpy as np
-from jax import random, hessian, value_and_grad, vmap, jit, grad
-from time import time
 import jax.scipy.stats as jstats
+from jax import random, hessian, value_and_grad, vmap, jit, grad
 from jax.scipy.special import gammaln
+from jax._src.typing import Array, ArrayLike
 import seaborn as snb
 from dataclasses import dataclass
 from scipy.optimize import minimize
@@ -92,7 +93,7 @@ def bernoulli_logpmf(y: jax.Array, p: jax.Array) -> jax.Array:
     return y * jnp.log(p) + (1 - y) * jnp.log(1 - p)
 
 # Multivariate Normal
-def mvn_logpdf(x: jax.Array, mu: jax.Array, Sigma: jax.Array) -> jax.Array:
+def mvn_logpdf(x: ArrayLike, mu: ArrayLike, Sigma: ArrayLike) -> ArrayLike:
     """Log PDF of multivariate normal N(mu, Sigma).
 
     arguments:
@@ -612,7 +613,7 @@ def plot_mcmc_diagnostics(chains: jax.Array | np.ndarray,
 
 
 def plot_posterior_1d(ax: Axes,
-                      samples: jax.Array,
+                      samples: ArrayLike,
                       log_target: Optional[Callable[[jax.Array], jax.Array]] = None,
                       x_range: Optional[tuple[float, float]] = None,
                       num_bins: int = 40,
@@ -644,7 +645,7 @@ def plot_posterior_1d(ax: Axes,
     ax.legend()
 
 
-def _plot_interval(ax: Axes, x: jax.Array, samples: Union[jax.Array, np.ndarray],
+def _plot_interval(ax: Axes, x: ArrayLike, samples: Union[jax.Array, np.ndarray],
                    interval: float, color: str, alpha: float, **kwargs) -> None:
     lo = np.percentile(samples, 0.5 * (100 - interval), axis=0)
     hi = np.percentile(samples, 100 - 0.5 * (100 - interval), axis=0)
@@ -652,8 +653,8 @@ def _plot_interval(ax: Axes, x: jax.Array, samples: Union[jax.Array, np.ndarray]
 
 
 def plot_predictions(ax: Axes,
-                     x: jax.Array,
-                     samples: jax.Array,
+                     x: ArrayLike,
+                     samples: ArrayLike,
                      num_samples: int = 100,
                      sample_color: str = 'k',
                      sample_alpha: float = 0.3,
@@ -1022,3 +1023,221 @@ def plot_with_uncertainty(kernel: StationaryIsotropicKernel | Kernel,
     for i in range(2):
         _plot_data(ax[i], Xtrain, ytrain)
         ax[i].legend(loc='lower center', ncol=4)
+
+
+# ====================================== Variational Inference ============================================
+
+from .exercise10 import VariationalGMM, plot_std_dev_contour, PCA_dim_reduction  # noqa: E402
+from .exercise11 import AdamOptimizer, create_linear_regression_data              # noqa: E402
+
+
+def kl_gaussian(m_q: jax.Array, v_q: jax.Array,
+                m_p: jax.Array, v_p: jax.Array) -> jax.Array:
+    """Analytical KL(q||p) for diagonal Gaussians q = N(m_q, diag(v_q)), p = N(m_p, diag(v_p)).
+
+    arguments:
+        m_q, v_q  -- mean and variance vectors of q (shape (D,))
+        m_p, v_p  -- mean and variance vectors of p (shape (D,))
+
+    returns:
+        kl        -- KL divergence scalar
+    """
+    return 0.5 * jnp.sum(v_q / v_p + (m_q - m_p) ** 2 / v_p - 1.0 + jnp.log(v_p / v_q))
+
+
+class BlackBoxVI:
+    """Black-Box Variational Inference with mean-field Gaussian approximation.
+
+    Optimizes the ELBO via the reparametrization trick and Adam.
+    The variational family is q(w) = prod_d N(w_d | m_d, v_d).
+    Parameters are stored in unconstrained form: lam = [m, log(v)].
+
+    Usage::
+        # log_prior(w): w shape (S, D) -> (S,)
+        # log_lik(X, y, w): w shape (S, D) -> (S,)
+        log_prior = lambda w: jnp.sum(gaussian_logpdf(w, 0., 1.), axis=-1)
+        log_lik   = lambda X, y, w: jnp.sum(bernoulli_logpmf(y, sigmoid(w @ X.T)), axis=-1)
+        vi = BlackBoxVI(log_prior, log_lik, num_params=D)
+        vi.fit(X, y)
+        samples = vi.generate_posterior_samples(key, num_samples=500)
+    """
+
+    def __init__(self,
+                 log_prior: Callable[[jax.Array], jax.Array],
+                 log_lik: Callable[[jax.Array, jax.Array, jax.Array], jax.Array],
+                 num_params: int,
+                 step_size: float = 0.01,
+                 max_itt: int = 1000,
+                 num_samples: int = 10,
+                 batch_size: Optional[int] = None,
+                 seed: int = 0,
+                 verbose: int = 200) -> None:
+        """
+        arguments:
+            log_prior   -- callable log_prior(w) where w has shape (S, D); returns (S,)
+            log_lik     -- callable log_lik(X, y, w) where w has shape (S, D); returns (S,)
+            num_params  -- D, dimension of the parameter space
+            step_size   -- Adam step size
+            max_itt     -- number of Adam iterations
+            num_samples -- number of MC samples S for the ELBO estimate
+            batch_size  -- mini-batch size (None = full data)
+            seed        -- random seed
+            verbose     -- print ELBO every `verbose` iterations (0 = silent)
+        """
+        self.log_prior = log_prior
+        self.log_lik = log_lik
+        self.D = num_params
+        self.step_size = step_size
+        self.max_itt = max_itt
+        self.num_samples = num_samples
+        self.batch_size = batch_size
+        self.seed = seed
+        self.verbose = verbose
+
+        m0 = jnp.zeros(self.D)
+        v0 = jnp.ones(self.D)
+        self.lam = self.pack(m0, v0)
+
+        self.ELBO_history: list[float] = []
+        self.m_history: list[np.ndarray] = []
+        self.v_history: list[np.ndarray] = []
+
+    def pack(self, m: jax.Array, v: jax.Array) -> jax.Array:
+        """Pack (m, v) into unconstrained lam = [m, log(v)]."""
+        return jnp.concatenate([m, jnp.log(v)])
+
+    def unpack(self, lam: jax.Array) -> tuple[jax.Array, jax.Array]:
+        """Unpack lam into (m, v) with v = exp(lam[D:])."""
+        return lam[:self.D], jnp.exp(lam[self.D:])
+
+    def compute_entropy(self, v: jax.Array) -> jax.Array:
+        """Entropy of mean-field Gaussian: sum_d 0.5*(log(2*pi*v_d) + 1)."""
+        return 0.5 * jnp.sum(jnp.log(2 * jnp.pi * v) + 1.0)
+
+    def compute_ELBO(self, lam: jax.Array, key: jax.Array,
+                     X: Optional[jax.Array] = None,
+                     y: Optional[jax.Array] = None) -> jax.Array:
+        """MC-ELBO estimate via reparametrization: E_q[log p(w) + log p(y|w)] + H[q].
+
+        arguments:
+            lam  -- unconstrained variational parameters, shape (2*D,)
+            key  -- JAX random key
+            X    -- input data passed to log_lik (may be a mini-batch)
+            y    -- target data passed to log_lik (may be a mini-batch)
+
+        returns:
+            elbo -- scalar ELBO estimate
+        """
+        m, v = self.unpack(lam)
+        eps = random.normal(key, shape=(self.num_samples, self.D))
+        w = m[None, :] + jnp.sqrt(v)[None, :] * eps       # (S, D) reparametrized
+        log_prior = jnp.mean(self.log_prior(w))
+        log_lik: jax.Array | float = 0.0
+        if X is not None and y is not None:
+            log_lik = jnp.mean(self.log_lik(X, y, w))
+        return log_prior + log_lik + self.compute_entropy(v)
+
+    def generate_posterior_samples(self, key: jax.Array, num_samples: int) -> jax.Array:
+        """Draw samples from the fitted variational posterior q(w).
+
+        returns:
+            samples  -- shape (num_samples, D)
+        """
+        m, v = self.unpack(self.lam)
+        eps = random.normal(key, shape=(num_samples, self.D))
+        return m[None, :] + jnp.sqrt(v)[None, :] * eps
+
+    def fit(self, X: jax.Array, y: jax.Array) -> BlackBoxVI:
+        """Optimize the ELBO with Adam.
+
+        arguments:
+            X  -- input data, shape (N, ...)
+            y  -- targets, shape (N, ...)
+
+        returns:
+            self
+        """
+        N = len(X)
+        key = random.PRNGKey(self.seed)
+        lam = self.lam
+        optimizer = AdamOptimizer(len(lam), lam, self.step_size)
+        elbo_grad = jit(value_and_grad(self.compute_ELBO))
+
+        for i in range(self.max_itt):
+            key, key_elbo, key_batch = random.split(key, 3)
+            if self.batch_size is not None:
+                idx = random.choice(key_batch, N, shape=(self.batch_size,), replace=False)
+                Xb, yb = X[idx], y[idx]
+            else:
+                Xb, yb = X, y
+
+            elbo, g = elbo_grad(lam, key_elbo, Xb, yb)
+            lam = optimizer.step(g)
+
+            self.ELBO_history.append(float(elbo))
+            m, v = self.unpack(lam)
+            self.m_history.append(np.array(m))
+            self.v_history.append(np.array(v))
+
+            if self.verbose and (i + 1) % self.verbose == 0:
+                print(f'  {i+1:5d}/{self.max_itt}  ELBO={elbo:.3f}')
+
+        self.lam = lam
+        return self
+
+
+# ==================================== Variational Inference Plotting =====================================
+
+def plot_elbo(ax: Axes, vi: BlackBoxVI,
+              color: str = 'b', label: str = 'ELBO') -> None:
+    """Plot ELBO convergence history.
+
+    arguments:
+        ax    -- matplotlib axes
+        vi    -- fitted BlackBoxVI instance
+        color -- line color
+        label -- legend label
+    """
+    ax.plot(vi.ELBO_history, color=color, label=label)
+    ax.set(xlabel='Iteration', ylabel='ELBO', title='ELBO Convergence')
+    ax.legend()
+
+
+def plot_vi_diagnostics(vi: BlackBoxVI,
+                        param_names: Optional[list[str]] = None,
+                        figsize: Optional[tuple[float, float]] = None,
+                        ) -> tuple[Figure, np.ndarray]:
+    """Diagnostic panel: ELBO history + variational mean ± 2 std per parameter.
+
+    arguments:
+        vi            -- fitted BlackBoxVI instance
+        param_names   -- list of parameter name strings; defaults to θ_0, θ_1, …
+        figsize       -- figure size
+
+    returns:
+        fig, axes     -- (D+1 rows, 1 column)
+    """
+    D = vi.D
+    names = param_names or [f'$\\theta_{i}$' for i in range(D)]
+    m_hist = np.array(vi.m_history)   # (num_iters, D)
+    v_hist = np.array(vi.v_history)   # (num_iters, D)
+    iters = np.arange(len(m_hist))
+
+    fig, axes = plt.subplots(D + 1, 1, figsize=figsize or (10, 3 * (D + 1)), squeeze=False)
+
+    axes[0, 0].plot(vi.ELBO_history, color='b')
+    axes[0, 0].set(xlabel='Iteration', ylabel='ELBO', title='ELBO Convergence')
+
+    for i in range(D):
+        ax = axes[i + 1, 0]
+        mean_i = m_hist[:, i]
+        std_i  = np.sqrt(v_hist[:, i])
+        ax.plot(iters, mean_i, color=colors[0], label='Mean')
+        ax.fill_between(iters, mean_i - 2 * std_i, mean_i + 2 * std_i,
+                        color=colors[0], alpha=0.3, label='±2 std')
+        ax.set(xlabel='Iteration', ylabel=names[i],
+               title=f'Variational mean ± 2 std  {names[i]}')
+        ax.legend(fontsize=9)
+
+    fig.tight_layout()
+    return fig, axes
