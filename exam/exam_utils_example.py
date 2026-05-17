@@ -59,6 +59,10 @@ from bayesian import (
 from jax import config
 config.update("jax_enable_x64", True)
 
+import os
+FIG_DIR = "figures/exam_prep"
+os.makedirs(FIG_DIR, exist_ok=True)
+
 key = random.PRNGKey(0)
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -74,7 +78,7 @@ axes[2].plot(x, relu(x));       axes[2].set_title("relu")
 logits = jnp.array([1.0, 2.0, 0.5, -1.0])
 axes[3].bar(range(4), softmax(logits)); axes[3].set_title("softmax")
 fig.suptitle("Activation functions", fontweight="bold")
-plt.tight_layout(); plt.savefig("out_activations.png", dpi=80); plt.close()
+plt.tight_layout(); plt.savefig(f"{FIG_DIR}/activations.png", dpi=80); plt.close()
 
 # ──────────────────────────────────────────────────────────────────────────────
 # 2. Probability distributions
@@ -87,7 +91,7 @@ fig, ax = plt.subplots(figsize=(8, 3))
 for mu, sigma in [(0.0, 1.0), (1.0, 0.5), (-1.0, 2.0)]:
     ax.plot(t, gaussian_pdf(t, mu, sigma), label=f"N({mu}, {sigma}²)")
 ax.set(xlabel="x", ylabel="p(x)", title="Gaussian PDF"); ax.legend()
-plt.tight_layout(); plt.savefig("out_gaussian.png", dpi=80); plt.close()
+plt.tight_layout(); plt.savefig(f"{FIG_DIR}/gaussian.png", dpi=80); plt.close()
 
 # Beta
 p = jnp.linspace(0.01, 0.99, 300)
@@ -95,7 +99,7 @@ fig, ax = plt.subplots(figsize=(8, 3))
 for a, b in [(0.5, 0.5), (1, 1), (2, 5), (5, 2)]:
     ax.plot(p, beta_pdf(p, a, b), label=f"Beta({a},{b})")
 ax.set(xlabel="θ", ylabel="p(θ)", title="Beta PDF"); ax.legend()
-plt.tight_layout(); plt.savefig("out_beta.png", dpi=80); plt.close()
+plt.tight_layout(); plt.savefig(f"{FIG_DIR}/beta.png", dpi=80); plt.close()
 
 # Gamma
 x_g = jnp.linspace(0.01, 10, 300)
@@ -103,7 +107,7 @@ fig, ax = plt.subplots(figsize=(8, 3))
 for a, scale in [(1, 1), (2, 1), (3, 2)]:
     ax.plot(x_g, gamma_pdf(x_g, a, scale), label=f"Gamma(a={a}, scale={scale})")
 ax.set(xlabel="x", ylabel="p(x)", title="Gamma PDF"); ax.legend()
-plt.tight_layout(); plt.savefig("out_gamma.png", dpi=80); plt.close()
+plt.tight_layout(); plt.savefig(f"{FIG_DIR}/gamma.png", dpi=80); plt.close()
 
 # Poisson PMF
 k_vals = jnp.arange(0, 20)
@@ -111,7 +115,7 @@ fig, ax = plt.subplots(figsize=(8, 3))
 for lam in [1.0, 4.0, 8.0]:
     ax.plot(k_vals, poisson_pmf(k_vals, lam), "o-", label=f"Poisson(λ={lam})")
 ax.set(xlabel="k", ylabel="P(K=k)", title="Poisson PMF"); ax.legend()
-plt.tight_layout(); plt.savefig("out_poisson.png", dpi=80); plt.close()
+plt.tight_layout(); plt.savefig(f"{FIG_DIR}/poisson.png", dpi=80); plt.close()
 
 # --- Multivariate normal -----------------------------------------------------
 
@@ -132,7 +136,7 @@ plot_contour(axes[1],
                  jnp.stack([X1, X2], axis=-1), mu_2d, Sig_2d),
              x1s=x1s, x2s=x2s,
              transform=jnp.exp, num_contours=8, title="MVN density")
-plt.tight_layout(); plt.savefig("out_mvn.png", dpi=80); plt.close()
+plt.tight_layout(); plt.savefig(f"{FIG_DIR}/mvn.png", dpi=80); plt.close()
 
 # --- KL divergence between two diagonal Gaussians ----------------------------
 
@@ -176,7 +180,7 @@ ax.plot(x_star, mu_f, "b-", label="Posterior mean")
 ax.fill_between(x_star, mu_f - 2*jnp.sqrt(var_y), mu_f + 2*jnp.sqrt(var_y),
                 alpha=0.2, color="b", label="95% predictive")
 ax.set(xlabel="x", ylabel="y", title="Bayesian linear regression")
-ax.legend(); plt.tight_layout(); plt.savefig("out_blr.png", dpi=80); plt.close()
+ax.legend(); plt.tight_layout(); plt.savefig(f"{FIG_DIR}/blr.png", dpi=80); plt.close()
 
 # --- Marginal likelihood & hyperparameter optimisation -----------------------
 log_ml = marginal_likelihood(Phi, y, alpha, beta_prec)
@@ -217,7 +221,7 @@ ax.plot(xs, p / np.trapezoid(p, xs), "b-", lw=1.5, label="True (rescaled)")
 ax.plot(xs, gaussian_pdf(xs, float(m_lap[0]), float(jnp.sqrt(S_lap[0,0]))),
         "r--", lw=2, label="Laplace")
 ax.set(xlabel="w", ylabel="density", title="Laplace approximation")
-ax.legend(); plt.tight_layout(); plt.savefig("out_laplace.png", dpi=80); plt.close()
+ax.legend(); plt.tight_layout(); plt.savefig(f"{FIG_DIR}/laplace.png", dpi=80); plt.close()
 
 # ──────────────────────────────────────────────────────────────────────────────
 # 5. MCMC — Metropolis-Hastings
@@ -249,7 +253,7 @@ axes[0].scatter(*np.array(post_mh).T, s=2, alpha=0.3)
 axes[0].set(xlabel="θ₀", ylabel="θ₁", title="MH posterior samples")
 axes[1].hist(np.array(post_mh[:, 0]), bins=40, density=True, alpha=0.6)
 axes[1].set(xlabel="θ₀", ylabel="density", title="MH marginal θ₀")
-plt.tight_layout(); plt.savefig("out_mh.png", dpi=80); plt.close()
+plt.tight_layout(); plt.savefig(f"{FIG_DIR}/mh.png", dpi=80); plt.close()
 
 # ──────────────────────────────────────────────────────────────────────────────
 # 6. MCMC — HMC + convergence diagnostics
@@ -269,7 +273,7 @@ chains = chains[:, :, :]   # (2, 3001, 2)
 
 fig, axes = plot_mcmc_diagnostics(chains, warm_up=500,
                                   param_names=["θ₀", "θ₁"])
-plt.tight_layout(); plt.savefig("out_hmc_diag.png", dpi=80); plt.close()
+plt.tight_layout(); plt.savefig(f"{FIG_DIR}/hmc_diag.png", dpi=80); plt.close()
 
 Rhat = compute_Rhat(chains[:, 500:, :])
 ESS  = compute_effective_sample_size(chains[:, 500:, :])
@@ -300,7 +304,7 @@ plot_contour(ax, lambda X1, X2: mvn_logpdf(
     x1s, x2s, transform=jnp.exp, num_contours=6, title="Leapfrog trajectory")
 ax.plot(traj[:, 0], traj[:, 1], "r.-", lw=1.5, ms=6)
 ax.plot(*traj[0], "go", ms=10, label="start")
-ax.legend(); plt.tight_layout(); plt.savefig("out_leapfrog.png", dpi=80); plt.close()
+ax.legend(); plt.tight_layout(); plt.savefig(f"{FIG_DIR}/leapfrog.png", dpi=80); plt.close()
 
 # ──────────────────────────────────────────────────────────────────────────────
 # 7. Gaussian Processes
@@ -328,7 +332,7 @@ ax.fill_between(X_star.ravel(), mu.ravel()-2*std, mu.ravel()+2*std,
                 alpha=0.2, color="b", label="95% predictive")
 ax.scatter(X_train.ravel(), y_train.ravel(), c="k", s=40, zorder=5, label="Data")
 ax.set(xlabel="x", ylabel="y", title=f"GP regression  ({hyper})")
-ax.legend(); plt.tight_layout(); plt.savefig("out_gp.png", dpi=80); plt.close()
+ax.legend(); plt.tight_layout(); plt.savefig(f"{FIG_DIR}/gp.png", dpi=80); plt.close()
 
 # --- Hyperparameter optimisation via marginal likelihood ---------------------
 hyper_opt = optimize_marginal_likelihood(gp, hyper, verbose=True)
@@ -349,7 +353,7 @@ ax.fill_between(X_star.ravel(), mu_lin.ravel()-2*std_lin, mu_lin.ravel()+2*std_l
                 alpha=0.2, color="r")
 ax.scatter(X_train.ravel(), y_train.ravel(), c="k", s=40, zorder=5)
 ax.set(xlabel="x", ylabel="y", title="GP with linear kernel")
-ax.legend(); plt.tight_layout(); plt.savefig("out_gp_linear.png", dpi=80); plt.close()
+ax.legend(); plt.tight_layout(); plt.savefig(f"{FIG_DIR}/gp_linear.png", dpi=80); plt.close()
 
 # --- Compare three kernel families -------------------------------------------
 kernels = {
@@ -373,7 +377,7 @@ for ax, (name, k) in zip(axes, kernels.items()):
     ax.scatter(X_train.ravel(), y_train.ravel(), c="k", s=20, zorder=5)
     ax.set(title=f"{name}\n{h_opt}", xlabel="x")
 plt.suptitle("Kernel comparison", fontweight="bold")
-plt.tight_layout(); plt.savefig("out_gp_kernels.png", dpi=80); plt.close()
+plt.tight_layout(); plt.savefig(f"{FIG_DIR}/gp_kernels.png", dpi=80); plt.close()
 
 # --- GP prior samples --------------------------------------------------------
 K_prior = gp.kernel.construct_kernel(X_star, X_star, hyper_opt)
@@ -384,7 +388,7 @@ f_prior = generate_samples(subkey, jnp.zeros(len(X_star)), K_prior,
 fig, ax = plt.subplots(figsize=(10, 4))
 ax.plot(X_star, f_prior, alpha=0.7, lw=1.5)
 ax.set(xlabel="x", ylabel="f(x)", title="GP prior samples")
-plt.tight_layout(); plt.savefig("out_gp_prior.png", dpi=80); plt.close()
+plt.tight_layout(); plt.savefig(f"{FIG_DIR}/gp_prior.png", dpi=80); plt.close()
 
 # ──────────────────────────────────────────────────────────────────────────────
 # 8. Variational Inference — Black-Box VI
@@ -431,11 +435,11 @@ print(f"True w:   {np.array(w_vi_true)}")
 # ELBO convergence
 fig, ax = plt.subplots(figsize=(8, 3))
 plot_elbo(ax, vi)
-plt.tight_layout(); plt.savefig("out_vi_elbo.png", dpi=80); plt.close()
+plt.tight_layout(); plt.savefig(f"{FIG_DIR}/vi_elbo.png", dpi=80); plt.close()
 
 # Full diagnostics panel (ELBO + mean/std per parameter)
 fig, axes = plot_vi_diagnostics(vi, param_names=["w₀", "w₁"])
-plt.tight_layout(); plt.savefig("out_vi_diag.png", dpi=80); plt.close()
+plt.tight_layout(); plt.savefig(f"{FIG_DIR}/vi_diag.png", dpi=80); plt.close()
 
 # Posterior samples from q(w)
 key, subkey = random.split(key)
@@ -446,7 +450,7 @@ fig, ax = plt.subplots(figsize=(6, 5))
 ax.scatter(*np.array(vi_samples).T, s=3, alpha=0.3, label="VI samples")
 ax.scatter(*np.array(w_vi_true), c="r", s=80, zorder=5, label="True w")
 ax.set(xlabel="w₀", ylabel="w₁", title="VI posterior q(w)")
-ax.legend(); plt.tight_layout(); plt.savefig("out_vi_samples.png", dpi=80); plt.close()
+ax.legend(); plt.tight_layout(); plt.savefig(f"{FIG_DIR}/vi_samples.png", dpi=80); plt.close()
 
 # Compare VI posterior to HMC ground truth
 def log_target_logreg(theta):
@@ -467,7 +471,7 @@ for i, ax in enumerate(axes):
             "r-", lw=2, label="VI")
     ax.set(xlabel=param_names[i], ylabel="Density"); ax.legend()
 plt.suptitle("VI vs. HMC posterior comparison", fontweight="bold")
-plt.tight_layout(); plt.savefig("out_vi_vs_hmc.png", dpi=80); plt.close()
+plt.tight_layout(); plt.savefig(f"{FIG_DIR}/vi_vs_hmc.png", dpi=80); plt.close()
 
 # ──────────────────────────────────────────────────────────────────────────────
 # 9. Variational GMM (VariationalGMM from exercise10)
@@ -500,6 +504,6 @@ ax.contourf(x1s, x2s, np.array(jnp.exp(log_pred).reshape(80, 80)),
             levels=12, cmap="Blues")
 ax.scatter(*np.array(X_gmm).T, s=8, c="k", alpha=0.4)
 ax.set(xlabel="x₁", ylabel="x₂", title="Variational GMM predictive density")
-plt.tight_layout(); plt.savefig("out_vgmm.png", dpi=80); plt.close()
+plt.tight_layout(); plt.savefig(f"{FIG_DIR}/vgmm.png", dpi=80); plt.close()
 
-print("All examples complete — figures saved to out_*.png")
+print(f"All examples complete — figures saved to {FIG_DIR}/")

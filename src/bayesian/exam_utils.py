@@ -61,6 +61,97 @@ class Grid2D(object):
         alpha_idx, beta_idx = jnp.unravel_index(idx, self.grid_size)
         return self.alphas[alpha_idx], self.betas[beta_idx]
 
+class GridApproximation2D(Grid2D):
+    """Normalized grid approximation of a 2D posterior distribution.
+
+    Evaluates log_joint on a (alpha, beta) grid, normalizes to a proper
+    probability distribution, and provides marginals, expectation, and sampling.
+
+    Usage::
+        grid = GridApproximation2D(alphas, betas, model.log_joint)
+        alpha_samples, beta_samples = grid.sample(key, num_samples=500)
+        E_theta = grid.compute_expectation(lambda a, b: a + b)
+        grid.visualize(ax)
+    """
+
+    def __init__(self, alphas: jax.Array, betas: jax.Array,
+                 log_joint: Callable[[ArrayLike, ArrayLike], jax.Array],
+                 threshold: float = 1e-8,
+                 name: str = "GridApproximation2D") -> None:
+        Grid2D.__init__(self, alphas, betas, log_joint, name)
+        self.threshold = threshold
+        self._prep_approximation()
+        self._compute_marginals()
+        self._sanity_check()
+
+    def _prep_approximation(self) -> None:
+        log_vals = self.values - jnp.max(self.values)
+        tilde = jnp.exp(log_vals)
+        self.probabilities_grid: jax.Array = tilde / jnp.sum(tilde)
+        self.alphas_flat: jax.Array = self.alpha_grid.flatten()
+        self.betas_flat: jax.Array = self.beta_grid.flatten()
+        self.num_outcomes: int = int(len(self.alphas_flat))
+        self.probabilities_flat: jax.Array = self.probabilities_grid.flatten()
+
+    def _compute_marginals(self) -> None:
+        self.pi_alpha: jax.Array = self.probabilities_grid.sum(axis=1)  # (num_alpha,)
+        self.pi_beta: jax.Array = self.probabilities_grid.sum(axis=0)   # (num_beta,)
+
+    def _sanity_check(self) -> None:
+        assert self.probabilities_grid.shape == self.grid_size
+        assert jnp.all(self.probabilities_grid >= 0)
+        assert jnp.allclose(self.probabilities_grid.sum(), 1.0)
+
+    def compute_expectation(self, f: Callable[[ArrayLike, ArrayLike], jax.Array]) -> jax.Array:
+        """E_q[f(alpha, beta)] under the grid approximation."""
+        return jnp.sum(f(self.alphas_flat, self.betas_flat) * self.probabilities_flat, axis=0)
+
+    def sample(self, key: jax.Array, num_samples: int = 1) -> tuple[jax.Array, jax.Array]:
+        """Draw samples of (alpha, beta) from the grid approximation.
+
+        returns:
+            alpha_samples, beta_samples  -- each shape (num_samples, 1)
+        """
+        idx = random.choice(key, jnp.arange(self.num_outcomes),
+                            p=self.probabilities_flat, shape=(num_samples, 1))
+        return self.alphas_flat[idx], self.betas_flat[idx]
+
+    def visualize(self, ax: Axes, scaling: float = 8000,
+                  title: str = '') -> None:
+        """Scatter plot of grid points; point area proportional to probability mass."""
+        mask = self.probabilities_flat > self.threshold
+        ax.scatter(self.alphas_flat[mask], self.betas_flat[mask],
+                   scaling * self.probabilities_flat[mask], label='$\\pi_{ij}$')
+        ax.set(xlabel='$\\alpha$', ylabel='$\\beta$')
+        ax.set_title(title or self.name, fontweight='bold')
+
+
+def plot_grid_marginals(grid: GridApproximation2D,
+                        param_names: Optional[tuple[str, str]] = None,
+                        figsize: Optional[tuple[float, float]] = None,
+                        ) -> tuple[Figure, np.ndarray]:
+    """Bar charts of the marginal distributions of a GridApproximation2D.
+
+    arguments:
+        grid         -- fitted GridApproximation2D
+        param_names  -- (alpha_name, beta_name); defaults to ('α', 'β')
+        figsize      -- figure size
+
+    returns:
+        fig, axes    -- 1x2 subplot array
+    """
+    a_name, b_name = param_names or ('$\\alpha$', '$\\beta$')
+    fig, axes = plt.subplots(1, 2, figsize=figsize or (12, 4))
+    axes[0].bar(np.array(grid.alphas), np.array(grid.pi_alpha),
+                width=float(grid.alphas[1] - grid.alphas[0]))
+    axes[0].set(xlabel=a_name, ylabel=f'$q({a_name})$', title=f'Marginal of {a_name}')
+    axes[1].bar(np.array(grid.betas), np.array(grid.pi_beta),
+                width=float(grid.betas[1] - grid.betas[0]))
+    axes[1].set(xlabel=b_name, ylabel=f'$q({b_name})$', title=f'Marginal of {b_name}')
+    fig.tight_layout()
+    return fig, axes
+
+
 # ====================================== Activation Functions ==========================================
 
 def sigmoid(x: ArrayLike) -> jax.Array:
@@ -1031,6 +1122,77 @@ def plot_with_uncertainty(kernel: StationaryIsotropicKernel | Kernel,
         ax[i].legend(loc='lower center', ncol=4)
 
 
+def plot_with_uncertainty_laplace(kernel: StationaryIsotropicKernel | Kernel,
+                                  hyper: Hyperparameters,
+                                  X: ArrayLike,
+                                  Xstar: ArrayLike,
+                                  m: ArrayLike,
+                                  S: ArrayLike,
+                                  ax: Optional[Axes] = None,
+                                  color: str = 'r',
+                                  title: str = '',
+                                  ) -> tuple[jax.Array, jax.Array]:
+    """GP predictive distribution using a Laplace-approximated posterior over f.
+
+    Given the Laplace posterior N(f | m, S) at training inputs X, computes
+    the marginal predictive distribution of the latent function f* at Xstar:
+
+        mu_*    = K_{*X} K_{XX}^{-1} m
+        Sigma_* = K_{**} - K_{*X} K_{XX}^{-1} K_{X*}
+                         + K_{*X} K_{XX}^{-1} S K_{XX}^{-1} K_{X*}
+
+    This is the correct predictive distribution for non-conjugate GP models
+    such as GP classification, where the Laplace approximation is applied to
+    the intractable posterior over the latent function.
+
+    arguments:
+        kernel  -- kernel object (StationaryIsotropicKernel or Kernel)
+        hyper   -- Hyperparameters
+        X       -- training inputs, shape (N, D)
+        Xstar   -- test inputs, shape (P, D)
+        m       -- Laplace MAP estimate of f at X, shape (N,) or (N, 1)
+        S       -- Laplace posterior covariance at X, shape (N, N)
+        ax      -- matplotlib axes; creates new figure if None
+        color   -- color for the mean curve and interval
+        title   -- axes title
+
+    returns:
+        mu_star, std_star  -- predictive mean (P,) and std (P,) at Xstar
+    """
+    X, Xstar = jnp.asarray(X), jnp.asarray(Xstar)
+    m = jnp.asarray(m).ravel()
+    S = jnp.asarray(S)
+
+    K_XX = kernel.construct_kernel(X, X, hyper)
+    K_sX = kernel.construct_kernel(Xstar, X, hyper)
+    K_ss = kernel.construct_kernel(Xstar, Xstar, hyper)
+
+    # mu_* = K_{*X} K_{XX}^{-1} m
+    alpha = jnp.linalg.solve(K_XX, m)
+    mu_star = K_sX @ alpha
+
+    # Sigma_* = K_{**} - K_{*X} V + K_{*X} K_{XX}^{-1} S V,  V = K_{XX}^{-1} K_{X*}
+    V = jnp.linalg.solve(K_XX, K_sX.T)                     # (N, P)
+    Sigma_star = K_ss - K_sX @ V + K_sX @ jnp.linalg.solve(K_XX, S @ V)
+    std_star = jnp.sqrt(jnp.maximum(jnp.diag(Sigma_star), 0.0))
+
+    if ax is None:
+        _, ax = plt.subplots(figsize=(10, 4))
+
+    xs = Xstar.ravel()
+    ax.plot(xs, mu_star, color=color, label='Predictive mean')
+    ax.plot(xs, mu_star + 2 * std_star, '--', color=color, lw=0.8)
+    ax.plot(xs, mu_star - 2 * std_star, '--', color=color, lw=0.8)
+    ax.fill_between(xs, mu_star - 2 * std_star, mu_star + 2 * std_star,
+                    color=color, alpha=0.25, label='95% interval')
+    ax.scatter(X.ravel(), m, c='k', s=25, zorder=5, label='Training MAP $\\hat{f}$')
+    if title:
+        ax.set_title(title, fontweight='bold')
+    ax.legend()
+
+    return mu_star, std_star
+
+
 # ====================================== Variational Inference ============================================
 
 from .exercise10 import VariationalGMM, plot_std_dev_contour, PCA_dim_reduction  # noqa: E402
@@ -1115,6 +1277,7 @@ class BlackBoxVI:
 
     def unpack(self, lam: ArrayLike) -> tuple[jax.Array, jax.Array]:
         """Unpack lam into (m, v) with v = exp(lam[D:])."""
+        lam = jnp.asarray(lam)
         return lam[:self.D], jnp.exp(lam[self.D:])
 
     def compute_entropy(self, v: ArrayLike) -> jax.Array:

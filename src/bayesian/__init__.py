@@ -1,6 +1,8 @@
 from .exam_utils import (
     # utility
     Grid2D,
+    GridApproximation2D,
+    plot_grid_marginals,
 
     # activation functions
     sigmoid,
@@ -72,6 +74,7 @@ from .exam_utils import (
     # GP plotting
     plot_kernel,
     plot_with_uncertainty,
+    plot_with_uncertainty_laplace,
 
     # variational inference
     kl_gaussian,
