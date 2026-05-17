@@ -8,7 +8,7 @@ import numpy as np
 import jax.scipy.stats as jstats
 from jax import random, hessian, value_and_grad, vmap, jit, grad
 from jax.scipy.special import gammaln
-from jax._src.typing import Array, ArrayLike
+from jax.typing import ArrayLike
 import seaborn as snb
 from dataclasses import dataclass
 from scipy.optimize import minimize
@@ -38,7 +38,7 @@ class Grid2D(object):
     """ helper class for evaluating the function func on the grid defined by (alpha, beta) """
 
     def __init__(self, alphas: jax.Array, betas: jax.Array,
-                 func: Callable[[jax.Array, jax.Array], jax.Array], name: str = "Grid2D") -> None:
+                 func: Callable[[ArrayLike, ArrayLike], jax.Array], name: str = "Grid2D") -> None:
         self.alphas = alphas
         self.betas = betas
         self.grid_size = (len(self.alphas), len(self.betas))
@@ -63,22 +63,22 @@ class Grid2D(object):
 
 # ====================================== Activation Functions ==========================================
 
-def sigmoid(x: jax.Array) -> jax.Array:
+def sigmoid(x: ArrayLike) -> jax.Array:
     return 1.0 / (1.0 + jnp.exp(-x))
 
-def softplus(x: jax.Array) -> jax.Array:
+def softplus(x: ArrayLike) -> jax.Array:
     return jnp.log(1.0 + jnp.exp(x))
 
-def relu(x: jax.Array) -> jax.Array:
+def relu(x: ArrayLike) -> jax.Array:
     return jnp.maximum(0.0, x)
 
-def softmax(x: jax.Array) -> jax.Array:
+def softmax(x: ArrayLike) -> jax.Array:
     e_x = jnp.exp(x - jnp.max(x))
     return e_x / e_x.sum()
 
 # ====================================== Probability Distributions =====================================
 
-def probit(x: jax.Array) -> np.ndarray:
+def probit(x: ArrayLike) -> np.ndarray:
     """Gaussian CDF — used as a link function for binary classification."""
     return norm.cdf(x)
 
@@ -88,15 +88,15 @@ npdf = lambda x, m, v: jnp.exp(log_npdf(x, m, v))
 def gaussian_logpdf(x: jax.Array, mu: float, sigma: float) -> jax.Array: # sigma is the standard deviation
     return -0.5 * jnp.log(2 * jnp.pi) - jnp.log(sigma) - 0.5 * ((x - mu) / sigma) ** 2
 
-def gaussian_pdf(x: jax.Array, mu: float, sigma: float) -> jax.Array:
+def gaussian_pdf(x: ArrayLike, mu: float | ArrayLike, sigma: float | ArrayLike) -> jax.Array:
     return jnp.exp(gaussian_logpdf(x, mu, sigma))
 
-def bernoulli_logpmf(y: jax.Array, p: jax.Array) -> jax.Array:
+def bernoulli_logpmf(y: ArrayLike, p: ArrayLike) -> jax.Array:
     """Log PMF of Bernoulli: y in {0, 1}, p in (0, 1)."""
     return y * jnp.log(p) + (1 - y) * jnp.log(1 - p)
 
 # Multivariate Normal
-def mvn_logpdf(x: ArrayLike, mu: ArrayLike, Sigma: ArrayLike) -> ArrayLike:
+def mvn_logpdf(x: ArrayLike, mu: ArrayLike, Sigma: ArrayLike) -> jax.Array:
     """Log PDF of multivariate normal N(mu, Sigma).
 
     arguments:
@@ -106,10 +106,10 @@ def mvn_logpdf(x: ArrayLike, mu: ArrayLike, Sigma: ArrayLike) -> ArrayLike:
     """
     return mvn.logpdf(x, mu, Sigma)
 
-def mvn_pdf(x: jax.Array, mu: jax.Array, Sigma: jax.Array) -> jax.Array:
+def mvn_pdf(x: ArrayLike, mu: ArrayLike, Sigma: ArrayLike) -> jax.Array:
     return jnp.exp(mvn_logpdf(x, mu, Sigma))
 
-def mvn_sample(key: jax.Array, mu: jax.Array, Sigma: jax.Array,
+def mvn_sample(key: jax.Array, mu: ArrayLike, Sigma: ArrayLike,
                shape: tuple[int, ...] = ()) -> jax.Array:
     """Sample from N(mu, Sigma). shape gives the batch shape of samples."""
     return random.multivariate_normal(key, mu, Sigma, shape=shape)
@@ -117,42 +117,42 @@ def mvn_sample(key: jax.Array, mu: jax.Array, Sigma: jax.Array,
 # TODO: Add function to compute entropy of normal distribution
 
 # Gamma — parameterised by shape (a) and scale. Mean = a * scale.
-def gamma_logpdf(x: jax.Array, a: float, scale: float = 1.0) -> jax.Array:
+def gamma_logpdf(x: ArrayLike, a: float | ArrayLike, scale: float | ArrayLike = 1.0) -> jax.Array:
     """Log PDF of Gamma(a, scale). Mean = a * scale, variance = a * scale**2."""
     return jstats.gamma.logpdf(x, a=a, scale=scale)
 
-def gamma_pdf(x: jax.Array, a: float, scale: float = 1.0) -> jax.Array:
+def gamma_pdf(x: ArrayLike, a: float | ArrayLike, scale: float | ArrayLike = 1.0) -> jax.Array:
     return jnp.exp(gamma_logpdf(x, a, scale))
 
-def gamma_sample(key: jax.Array, a: float, scale: float = 1.0,
+def gamma_sample(key: jax.Array, a: float | ArrayLike, scale: float | ArrayLike = 1.0,
                  shape: tuple[int, ...] = ()) -> jax.Array:
     return random.gamma(key, a, shape=shape) * scale
 
 # Beta
-def beta_logpdf(x: jax.Array, a: float, b: float) -> jax.Array:
+def beta_logpdf(x: ArrayLike, a: float | ArrayLike, b: float | ArrayLike) -> jax.Array:
     """Log PDF of Beta(a, b). Support x in (0, 1)."""
     return jstats.beta.logpdf(x, a=a, b=b)
 
-def beta_pdf(x: jax.Array, a: float, b: float) -> jax.Array:
+def beta_pdf(x: ArrayLike, a: float | ArrayLike, b: float | ArrayLike) -> jax.Array:
     return jnp.exp(beta_logpdf(x, a, b))
 
-def beta_sample(key: jax.Array, a: float, b: float,
+def beta_sample(key: jax.Array, a: float | ArrayLike, b: float | ArrayLike,
                 shape: tuple[int, ...] = ()) -> jax.Array:
     return random.beta(key, a, b, shape=shape)
 
 # Poisson
-def poisson_logpmf(k: jax.Array, lam: float) -> jax.Array:
+def poisson_logpmf(k: ArrayLike, lam: float | ArrayLike) -> jax.Array:
     """Log PMF of Poisson(lam). k must be a non-negative integer."""
     return jstats.poisson.logpmf(k, mu=lam)
 
-def poisson_pmf(k: jax.Array, lam: float) -> jax.Array:
+def poisson_pmf(k: ArrayLike, lam: float | ArrayLike) -> jax.Array:
     return jnp.exp(poisson_logpmf(k, lam))
 
-def poisson_sample(key: jax.Array, lam: float, shape: tuple[int, ...] = ()) -> jax.Array:
+def poisson_sample(key: jax.Array, lam: float | ArrayLike, shape: tuple[int, ...] = ()) -> jax.Array:
     return random.poisson(key, lam=lam, shape=shape)
 
 # Binomial
-def binomial_logpmf(k: jax.Array, n: int, p: float) -> jax.Array:
+def binomial_logpmf(k: ArrayLike, n: int, p: float | ArrayLike) -> jax.Array:
     """Log PMF of Binomial(n, p).
 
     arguments:
@@ -163,16 +163,16 @@ def binomial_logpmf(k: jax.Array, n: int, p: float) -> jax.Array:
     log_coeff = gammaln(n + 1) - gammaln(k + 1) - gammaln(n - k + 1)
     return log_coeff + k * jnp.log(p) + (n - k) * jnp.log(1 - p)
 
-def binomial_pmf(k: jax.Array, n: int, p: float) -> jax.Array:
+def binomial_pmf(k: ArrayLike, n: int, p: float | ArrayLike) -> jax.Array:
     return jnp.exp(binomial_logpmf(k, n, p))
 
-def binomial_sample(key: jax.Array, n: int, p: float,
+def binomial_sample(key: jax.Array, n: int, p: float | ArrayLike,
                     shape: tuple[int, ...] = ()) -> jax.Array:
     """Sample from Binomial(n, p) by summing n Bernoulli trials."""
     return jnp.sum(random.bernoulli(key, p, shape=(*shape, n)), axis=-1)
 
 # Dirichlet
-def dirichlet_logpdf(x: jax.Array, alpha: jax.Array) -> jax.Array:
+def dirichlet_logpdf(x: ArrayLike, alpha: ArrayLike) -> jax.Array:
     """Log PDF of Dirichlet(alpha). x must be a probability vector summing to 1.
 
     arguments:
@@ -181,17 +181,17 @@ def dirichlet_logpdf(x: jax.Array, alpha: jax.Array) -> jax.Array:
     """
     return jstats.dirichlet.logpdf(x, alpha=alpha)
 
-def dirichlet_pdf(x: jax.Array, alpha: jax.Array) -> jax.Array:
+def dirichlet_pdf(x: ArrayLike, alpha: ArrayLike) -> jax.Array:
     return jnp.exp(dirichlet_logpdf(x, alpha))
 
-def dirichlet_sample(key: jax.Array, alpha: jax.Array,
+def dirichlet_sample(key: jax.Array, alpha: ArrayLike,
                      shape: tuple[int, ...] = ()) -> jax.Array:
     return random.dirichlet(key, alpha, shape=shape)
 
 # ====================================== Bayesian Linear Regression =====================================
 
-def compute_posterior_w(Phi: jax.Array, t: jax.Array,
-                        alpha: float, beta: float) -> tuple[jax.Array, jax.Array]:
+def compute_posterior_w(Phi: ArrayLike, t: ArrayLike,
+                        alpha: float | ArrayLike, beta: float | ArrayLike) -> tuple[jax.Array, jax.Array]:
     """
     Computes posterior p(w|t) of a linear Gaussian system
 
@@ -211,8 +211,8 @@ def compute_posterior_w(Phi: jax.Array, t: jax.Array,
     S = jnp.linalg.inv(A)
     return m, S
 
-def marginal_likelihood(Phi: jax.Array, t: jax.Array,
-                        alpha: float, beta: float) -> jax.Array:
+def marginal_likelihood(Phi: ArrayLike, t: ArrayLike,
+                        alpha: float | ArrayLike, beta: float | ArrayLike) -> jax.Array:
     """Computes log marginal likelihood of a linear Gaussian system.
 
     Arguments:
@@ -232,8 +232,8 @@ def marginal_likelihood(Phi: jax.Array, t: jax.Array,
 
 # ====================================== Laplace Approximation =========================================
 
-def laplace_approximation(log_target: Callable[[jax.Array], jax.Array],
-                          w0: jax.Array) -> tuple[jax.Array, jax.Array]:
+def laplace_approximation(log_target: Callable[[ArrayLike], jax.Array],
+                          w0: ArrayLike) -> tuple[jax.Array, jax.Array]:
     """Computes the Laplace approximation of a log-target density.
 
     Arguments:
@@ -254,11 +254,11 @@ def laplace_approximation(log_target: Callable[[jax.Array], jax.Array],
 
 # ====================================== MCMC and HMC =================================================
 
-def metropolis(log_target: Callable[[jax.Array], jax.Array],
+def metropolis(log_target: Callable[[ArrayLike], jax.Array],
                num_params: int,
                tau: float,
                num_iter: int,
-               theta_init: Optional[jax.Array] = None,
+               theta_init: Optional[ArrayLike] = None,
                seed: int = 0,
                verbose: bool = True) -> jax.Array:
     """Metropolis-Hastings sampler with isotropic Gaussian proposal.
@@ -295,7 +295,7 @@ def metropolis(log_target: Callable[[jax.Array], jax.Array],
     return jnp.array(thetas)
 
 
-def _build_hmc_fns(log_target: Callable[[jax.Array], jax.Array],
+def _build_hmc_fns(log_target: Callable[[ArrayLike], jax.Array],
                    ) -> tuple[Callable, Callable, Callable]:
     """Build jit-compiled Hamiltonian, potential energy and its gradient from log_target.
 
@@ -322,7 +322,7 @@ def _build_hmc_fns(log_target: Callable[[jax.Array], jax.Array],
 
 def leapfrog(theta: jax.Array,
              nu: jax.Array,
-             grad_potential: Callable[[jax.Array], jax.Array],
+             grad_potential: Callable[[ArrayLike], jax.Array],
              num_steps: int,
              step_size: float) -> tuple[jax.Array, jax.Array]:
     """Leapfrog integrator for Hamiltonian dynamics.
@@ -345,9 +345,9 @@ def leapfrog(theta: jax.Array,
     return theta, nu
 
 
-def HMC(log_target: Callable[[jax.Array], jax.Array],
+def HMC(log_target: Callable[[ArrayLike], jax.Array],
         num_iterations: int,
-        theta0: jax.Array,
+        theta0: ArrayLike,
         num_leapfrog_steps: int = 10,
         step_size: float = 0.1,
         seed: int = 0,
@@ -401,7 +401,7 @@ def _gelman_rubin_variance(x: np.ndarray) -> float:
     return W * (n - 1) / n + B_over_n
 
 
-def compute_Rhat(chains: jax.Array | np.ndarray) -> np.ndarray:
+def compute_Rhat(chains: ArrayLike) -> np.ndarray:
     """Gelman-Rubin R-hat convergence diagnostic. Values near 1.0 indicate convergence.
 
     arguments:
@@ -429,7 +429,7 @@ def compute_Rhat(chains: jax.Array | np.ndarray) -> np.ndarray:
     return np.sqrt(var_est / W)
 
 
-def compute_effective_sample_size(chains: jax.Array | np.ndarray) -> np.ndarray:
+def compute_effective_sample_size(chains: ArrayLike) -> np.ndarray:
     """Effective sample size (ESS) for each parameter.
 
     arguments:
@@ -459,25 +459,25 @@ def compute_effective_sample_size(chains: jax.Array | np.ndarray) -> np.ndarray:
 
 # ==================================== General Minimal Plotting Functions ======================================================
 
-def _plot_data(ax: Axes, Xtrain: jax.Array, ytrain: jax.Array) -> None:
+def _plot_data(ax: Axes, Xtrain: ArrayLike, ytrain: ArrayLike) -> None:
     ax.plot(Xtrain, ytrain, 'k.', markersize=12, label='Data')
     ax.grid(True)
     ax.set_xlabel('Input $x$')
     ax.set_ylabel('Response $y$')
     ax.legend()
 
-def plot_data(Xtrain: jax.Array, ytrain: jax.Array) -> None:
+def plot_data(Xtrain: ArrayLike, ytrain: ArrayLike) -> None:
     fig, ax = plt.subplots(1, 1, figsize=(10, 4))
     _plot_data(ax, Xtrain, ytrain)
 
 # Plot histogram
 
 def plot_contour(ax: Axes,
-                 f: Callable[[jax.Array, jax.Array], jax.Array],
-                 x1s: jax.Array,
-                 x2s: jax.Array,
+                 f: Callable[[ArrayLike, ArrayLike], jax.Array],
+                 x1s: ArrayLike,
+                 x2s: ArrayLike,
                  num_contours: int = 10,
-                 transform: Callable[[jax.Array], jax.Array] = lambda x: x,
+                 transform: Callable[[ArrayLike], jax.Array] = lambda x: x,
                  color: str = 'b',
                  alpha: float = 1.0,
                  xlabel: str = '$x_1$',
@@ -507,10 +507,10 @@ def plot_contour(ax: Axes,
 
 def plot_heatmap(fig: Figure,
                  ax: Axes,
-                 f: Callable[[jax.Array, jax.Array], jax.Array],
-                 x1s: jax.Array,
-                 x2s: jax.Array,
-                 transform: Callable[[jax.Array], jax.Array] = lambda x: x,
+                 f: Callable[[ArrayLike, ArrayLike], jax.Array],
+                 x1s: ArrayLike,
+                 x2s: ArrayLike,
+                 transform: Callable[[ArrayLike], jax.Array] = lambda x: x,
                  xlabel: str = '$x_1$',
                  ylabel: str = '$x_2$',
                  title: str = '',
@@ -540,7 +540,7 @@ def plot_heatmap(fig: Figure,
 # ==================================== MCMC Plotting Functions =========================================
 
 def plot_trace(axes: Union[Axes, Sequence[Axes]],
-               samples: jax.Array,
+               samples: ArrayLike,
                param_names: Optional[list[str]] = None) -> None:
     """Trace plots for each parameter.
 
@@ -549,16 +549,17 @@ def plot_trace(axes: Union[Axes, Sequence[Axes]],
         samples:      array of shape (num_samples, num_params) or (num_samples,) for 1D
         param_names:  list of parameter name strings; defaults to θ_0, θ_1, …
     """
-    samples = jnp.atleast_2d(samples) if jnp.ndim(samples) == 1 else samples
-    num_params = samples.shape[1] if samples.ndim == 2 else 1
+    s = jnp.asarray(samples)
+    s = jnp.atleast_2d(s) if s.ndim == 1 else s
+    num_params = s.shape[1] if s.ndim == 2 else 1
     axes_list: list[Axes] = [axes] if isinstance(axes, Axes) else list(axes)  # type: ignore[arg-type]
     names = param_names or [f'$\\theta_{i}$' for i in range(num_params)]
     for i, ax in enumerate(axes_list):
-        ax.plot(samples[:, i] if samples.ndim == 2 else samples, lw=0.7)
+        ax.plot(s[:, i] if s.ndim == 2 else s, lw=0.7)
         ax.set(xlabel='Iteration', ylabel=names[i], title=f'Trace of {names[i]}')
 
 
-def plot_mcmc_diagnostics(chains: jax.Array | np.ndarray,
+def plot_mcmc_diagnostics(chains: ArrayLike,
                           warm_up: int = 0,
                           param_names: Optional[list[str]] = None,
                           figsize: Optional[tuple[float, float]] = None,
@@ -619,7 +620,7 @@ def plot_mcmc_diagnostics(chains: jax.Array | np.ndarray,
 
 def plot_posterior_1d(ax: Axes,
                       samples: ArrayLike,
-                      log_target: Optional[Callable[[jax.Array], jax.Array]] = None,
+                      log_target: Optional[Callable[[ArrayLike], jax.Array]] = None,
                       x_range: Optional[tuple[float, float]] = None,
                       num_bins: int = 40,
                       color: str = 'b',
@@ -650,7 +651,7 @@ def plot_posterior_1d(ax: Axes,
     ax.legend()
 
 
-def _plot_interval(ax: Axes, x: ArrayLike, samples: Union[jax.Array, np.ndarray],
+def _plot_interval(ax: Axes, x: ArrayLike, samples: ArrayLike,
                    interval: float, color: str, alpha: float, **kwargs) -> None:
     lo = np.percentile(samples, 0.5 * (100 - interval), axis=0)
     hi = np.percentile(samples, 100 - 0.5 * (100 - interval), axis=0)
@@ -707,7 +708,7 @@ def plot_predictions(ax: Axes,
 
 # ====================================== Gaussian Processes ============================================
 
-def generate_samples(key: jax.Array, m: jax.Array, K: jax.Array,
+def generate_samples(key: jax.Array, m: ArrayLike, K: ArrayLike,
                      num_samples: int, jitter: float = 0) -> jax.Array:
     """ returns M samples from an Gaussian process with mean m and kernel matrix K. The function generates num_samples of z ~ N(0, I) and transforms them into f  ~ N(m, K) via the Cholesky factorization.
 
@@ -751,25 +752,25 @@ class Hyperparameters(object):
         return f'Hyperparameters(kappa={self.kappa:3.2f}, lengthscale={self.lengthscale:3.2f}, sigma={self.sigma:3.2f})'
 
 # in the code below tau represents the distance between to input points, i.e. tau = ||x_n - x_m||.
-def squared_exponential(tau: jax.Array, hyperparameters: Hyperparameters) -> jax.Array:
+def squared_exponential(tau: ArrayLike, hyperparameters: Hyperparameters) -> jax.Array:
     return hyperparameters.kappa**2*jnp.exp(-0.5*tau**2/hyperparameters.lengthscale**2)
 
-def matern12(tau: jax.Array, hyperparameters: Hyperparameters) -> jax.Array:
+def matern12(tau: ArrayLike, hyperparameters: Hyperparameters) -> jax.Array:
     return hyperparameters.kappa**2*jnp.exp(-tau/hyperparameters.lengthscale)
 
-def matern32(tau: jax.Array, hyperparameters: Hyperparameters) -> jax.Array:
+def matern32(tau: ArrayLike, hyperparameters: Hyperparameters) -> jax.Array:
     return hyperparameters.kappa**2*(1 + jnp.sqrt(3)*tau/hyperparameters.lengthscale)*jnp.exp(-jnp.sqrt(3)*tau/hyperparameters.lengthscale)
 
 class StationaryIsotropicKernel(object):
 
-    def __init__(self, kernel_fun: Callable[[jax.Array, Hyperparameters], jax.Array]) -> None:
+    def __init__(self, kernel_fun: Callable[[ArrayLike, Hyperparameters], jax.Array]) -> None:
         """
             the argument kernel_fun must be a function of two arguments kernel_fun(||tau||, hyperparameters), e.g.
             squared_exponential = lambda tau, hyper: hyper.kappa**2*np.exp(-0.5*tau**2/hyper.lengthscale**2).
         """
         self.kernel_fun = kernel_fun
 
-    def construct_kernel(self, X1: jax.Array, X2: jax.Array,
+    def construct_kernel(self, X1: ArrayLike, X2: ArrayLike,
                          hyperparameters: Hyperparameters, jitter: float = 1e-8) -> jax.Array:
         """ compute and returns the NxM kernel matrix between the two sets of input X1 (shape NxD) and X2 (MxD) using the stationary and isotropic covariance function specified by self.kernel_fun
 
@@ -805,7 +806,7 @@ class Kernel(object):
         Kernel(lambda x1, x2, hyper: (hyper.kappa + jnp.dot(x1, x2))**hyper.lengthscale)
     """
 
-    def __init__(self, kernel_fun: Callable[[jax.Array, jax.Array, Hyperparameters], jax.Array]) -> None:
+    def __init__(self, kernel_fun: Callable[[ArrayLike, ArrayLike, Hyperparameters], jax.Array]) -> None:
         """
         arguments:
             kernel_fun  -- function kernel_fun(x1, x2, hyperparameters) where
@@ -814,7 +815,7 @@ class Kernel(object):
         """
         self.kernel_fun = kernel_fun
 
-    def construct_kernel(self, X1: jax.Array, X2: jax.Array,
+    def construct_kernel(self, X1: ArrayLike, X2: ArrayLike,
                          hyperparameters: Hyperparameters, jitter: float = 1e-8) -> jax.Array:
         """Compute and return the NxM kernel matrix between X1 (NxD) and X2 (MxD).
 
@@ -839,7 +840,7 @@ class Kernel(object):
 
 class GaussianProcessRegression(object):
 
-    def __init__(self, X: jax.Array, y: jax.Array,
+    def __init__(self, X: ArrayLike, y: ArrayLike,
                  kernel: StationaryIsotropicKernel | Kernel,
                  hyperparameters: Hyperparameters,
                  jitter: float = 1e-8) -> None:
@@ -868,7 +869,7 @@ class GaussianProcessRegression(object):
     def set_hyperparameters(self, hyper: Hyperparameters) -> None:
         self.hyperparameters = hyper
 
-    def posterior_samples(self, key: jax.Array, Xstar: jax.Array, num_samples: int) -> jax.Array:
+    def posterior_samples(self, key: jax.Array, Xstar: ArrayLike, num_samples: int) -> jax.Array:
         """
             generate samples from the posterior p(f^*|y, x^*) for each of the inputs in Xstar
 
@@ -886,7 +887,7 @@ class GaussianProcessRegression(object):
         assert (f_samples.shape == (len(Xstar), num_samples)), f"The shape of the posterior mu seems wrong. Expected ({len(Xstar)}, {num_samples}), but actual shape was {f_samples.shape}. Please check implementation"
         return f_samples
 
-    def predict_y(self, Xstar: jax.Array) -> tuple[jax.Array, jax.Array]:
+    def predict_y(self, Xstar: ArrayLike) -> tuple[jax.Array, jax.Array]:
         """ returns the posterior distribution of y^* evaluated at each of the points in x^* conditioned on (X, y)
 
         Arguments:
@@ -902,7 +903,7 @@ class GaussianProcessRegression(object):
 
         return mu, Sigma
 
-    def predict_f(self, Xstar: jax.Array) -> tuple[jax.Array, jax.Array]:
+    def predict_f(self, Xstar: ArrayLike) -> tuple[jax.Array, jax.Array]:
         """ returns the posterior distribution of f^* evaluated at each of the points in x^* conditioned on (X, y)
 
         Arguments:
@@ -978,7 +979,7 @@ def add_colorbar(im, fig: Figure, ax: Axes) -> None:
     cax = divider.append_axes('right', size='5%', pad=0.05)
     fig.colorbar(im, cax=cax, orientation='vertical')
 
-def plot_kernel(X: jax.Array, K: jax.Array, hyper: Hyperparameters,
+def plot_kernel(X: ArrayLike, K: ArrayLike, hyper: Hyperparameters,
                 key: jax.Array, num_samples: int) -> None:
     fig, ax = plt.subplots(1, 2, figsize=(20, 5))
 
@@ -995,7 +996,7 @@ def plot_kernel(X: jax.Array, K: jax.Array, hyper: Hyperparameters,
     ax[1].set(xlabel='$x$', ylabel='$f(x)$', title='Samples from the Gaussian process');
 
 
-def _plot_with_uncertainty(ax: Axes, Xp: jax.Array, gp: GaussianProcessRegression,
+def _plot_with_uncertainty(ax: Axes, Xp: ArrayLike, gp: GaussianProcessRegression,
                            color: str = 'r', color_samples: str = 'b',
                            title: str = "", num_samples: int = 0, seed: int = 0) -> None:
 
@@ -1017,9 +1018,9 @@ def _plot_with_uncertainty(ax: Axes, Xp: jax.Array, gp: GaussianProcessRegressio
 
 def plot_with_uncertainty(kernel: StationaryIsotropicKernel | Kernel,
                           hyper: Hyperparameters,
-                          Xtrain: jax.Array,
-                          ytrain: jax.Array,
-                          Xstar: jax.Array) -> None:
+                          Xtrain: ArrayLike,
+                          ytrain: ArrayLike,
+                          Xstar: ArrayLike) -> None:
     gp_prior = GaussianProcessRegression(jnp.zeros((0, 1)), jnp.zeros((0, 1)), kernel, hyper)
     gp_post = GaussianProcessRegression(Xtrain, ytrain, kernel, hyper)
     fig, ax = plt.subplots(1, 2, figsize=(25, 6))
@@ -1036,8 +1037,8 @@ from .exercise10 import VariationalGMM, plot_std_dev_contour, PCA_dim_reduction 
 from .exercise11 import AdamOptimizer, create_linear_regression_data              # noqa: E402
 
 
-def kl_gaussian(m_q: jax.Array, v_q: jax.Array,
-                m_p: jax.Array, v_p: jax.Array) -> jax.Array:
+def kl_gaussian(m_q: ArrayLike, v_q: ArrayLike,
+                m_p: ArrayLike, v_p: ArrayLike) -> jax.Array:
     """Analytical KL(q||p) for diagonal Gaussians q = N(m_q, diag(v_q)), p = N(m_p, diag(v_p)).
 
     arguments:
@@ -1047,6 +1048,7 @@ def kl_gaussian(m_q: jax.Array, v_q: jax.Array,
     returns:
         kl        -- KL divergence scalar
     """
+    m_q, v_q, m_p, v_p = jnp.asarray(m_q), jnp.asarray(v_q), jnp.asarray(m_p), jnp.asarray(v_p)
     return 0.5 * jnp.sum(v_q / v_p + (m_q - m_p) ** 2 / v_p - 1.0 + jnp.log(v_p / v_q))
 
 
@@ -1068,8 +1070,8 @@ class BlackBoxVI:
     """
 
     def __init__(self,
-                 log_prior: Callable[[jax.Array], jax.Array],
-                 log_lik: Callable[[jax.Array, jax.Array, jax.Array], jax.Array],
+                 log_prior: Callable[[ArrayLike], jax.Array],
+                 log_lik: Callable[[ArrayLike, ArrayLike, ArrayLike], jax.Array],
                  num_params: int,
                  step_size: float = 0.01,
                  max_itt: int = 1000,
@@ -1107,21 +1109,21 @@ class BlackBoxVI:
         self.m_history: list[np.ndarray] = []
         self.v_history: list[np.ndarray] = []
 
-    def pack(self, m: jax.Array, v: jax.Array) -> jax.Array:
+    def pack(self, m: ArrayLike, v: ArrayLike) -> jax.Array:
         """Pack (m, v) into unconstrained lam = [m, log(v)]."""
         return jnp.concatenate([m, jnp.log(v)])
 
-    def unpack(self, lam: jax.Array) -> tuple[jax.Array, jax.Array]:
+    def unpack(self, lam: ArrayLike) -> tuple[jax.Array, jax.Array]:
         """Unpack lam into (m, v) with v = exp(lam[D:])."""
         return lam[:self.D], jnp.exp(lam[self.D:])
 
-    def compute_entropy(self, v: jax.Array) -> jax.Array:
+    def compute_entropy(self, v: ArrayLike) -> jax.Array:
         """Entropy of mean-field Gaussian: sum_d 0.5*(log(2*pi*v_d) + 1)."""
         return 0.5 * jnp.sum(jnp.log(2 * jnp.pi * v) + 1.0)
 
-    def compute_ELBO(self, lam: jax.Array, key: jax.Array,
-                     X: Optional[jax.Array] = None,
-                     y: Optional[jax.Array] = None) -> jax.Array:
+    def compute_ELBO(self, lam: ArrayLike, key: jax.Array,
+                     X: Optional[ArrayLike] = None,
+                     y: Optional[ArrayLike] = None) -> jax.Array:
         """MC-ELBO estimate via reparametrization: E_q[log p(w) + log p(y|w)] + H[q].
 
         arguments:
@@ -1152,7 +1154,7 @@ class BlackBoxVI:
         eps = random.normal(key, shape=(num_samples, self.D))
         return m[None, :] + jnp.sqrt(v)[None, :] * eps
 
-    def fit(self, X: jax.Array, y: jax.Array) -> BlackBoxVI:
+    def fit(self, X: ArrayLike, y: ArrayLike) -> BlackBoxVI:
         """Optimize the ELBO with Adam.
 
         arguments:
@@ -1162,6 +1164,7 @@ class BlackBoxVI:
         returns:
             self
         """
+        X, y = jnp.asarray(X), jnp.asarray(y)
         N = len(X)
         key = random.PRNGKey(self.seed)
         lam = self.lam
