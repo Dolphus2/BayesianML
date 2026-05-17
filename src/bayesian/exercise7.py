@@ -13,12 +13,6 @@ def add_colorbar(im, fig, ax):
     divider = make_axes_locatable(ax)
     cax = divider.append_axes('right', size='5%', pad=0.05)
     fig.colorbar(im, cax=cax, orientation='vertical')
-        
-
-
-
-
-
 
 def PCA_dim_reduction(Xtrain, Xtest, num_components):
 
