@@ -82,7 +82,10 @@ def probit(x: jax.Array) -> np.ndarray:
     """Gaussian CDF — used as a link function for binary classification."""
     return norm.cdf(x)
 
-def gaussian_logpdf(x: jax.Array, mu: float, sigma: float) -> jax.Array:
+log_npdf = lambda x, m, v: -(x-m)**2/(2*v) - 0.5*jnp.log(2*jnp.pi*v)
+npdf = lambda x, m, v: jnp.exp(log_npdf(x, m, v))
+
+def gaussian_logpdf(x: jax.Array, mu: float, sigma: float) -> jax.Array: # sigma is the standard deviation
     return -0.5 * jnp.log(2 * jnp.pi) - jnp.log(sigma) - 0.5 * ((x - mu) / sigma) ** 2
 
 def gaussian_pdf(x: jax.Array, mu: float, sigma: float) -> jax.Array:
@@ -110,6 +113,8 @@ def mvn_sample(key: jax.Array, mu: jax.Array, Sigma: jax.Array,
                shape: tuple[int, ...] = ()) -> jax.Array:
     """Sample from N(mu, Sigma). shape gives the batch shape of samples."""
     return random.multivariate_normal(key, mu, Sigma, shape=shape)
+
+# TODO: Add function to compute entropy of normal distribution
 
 # Gamma — parameterised by shape (a) and scale. Mean = a * scale.
 def gamma_logpdf(x: jax.Array, a: float, scale: float = 1.0) -> jax.Array:
