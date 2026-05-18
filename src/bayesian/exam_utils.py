@@ -173,7 +173,7 @@ def probit(x: ArrayLike) -> np.ndarray:
     """Gaussian CDF — used as a link function for binary classification."""
     return norm.cdf(x)
 
-log_npdf = lambda x, m, v: -(x-m)**2/(2*v) - 0.5*jnp.log(2*jnp.pi*v)
+log_npdf = lambda x, m, v: -(x-m)**2/(2*v) - 0.5*jnp.log(2*jnp.pi*v) # v is the variance
 npdf = lambda x, m, v: jnp.exp(log_npdf(x, m, v))
 
 def gaussian_logpdf(x: jax.Array, mu: float, sigma: float) -> jax.Array: # sigma is the standard deviation
