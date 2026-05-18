@@ -55,6 +55,7 @@ dependencies = [
     "pytz==2025.2",
     "pyzmq==27.1.0",
     "scipy==1.16.3",
+    "scipy-stubs>=1.17.1.4",
     "seaborn==0.13.2",
     "setuptools==65.5.0",
     "six==1.17.0",
